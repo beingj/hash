@@ -1,0 +1,94 @@
+================================================================================
+RAKP Message 2 Key Exchange Authentication Code
+================================================================================
+c3_admin_admin.pcap
+All the packets below are from byte offset 0x3a IPMI Payload
+packet #4: RMCP+ Open Session Response
+0000   00 00 04 00 a4 a3 a2 a0 fb 2d b5 ff 00 00 00 08
+0010   01 00 00 08 01 00 00 08 01 00 00 08 02 00 00 08
+0020   01 ff 02 07
+
+packet #5: RAKP Message 1
+0000   00 00 00 00 fb 2d b5 ff fe 5a 0a 60 f0 30 cd 69
+0010   53 ba ce a2 68 da 47 2c 14 00 00 05 61 64 6d 69
+0020   6e
+
+packet #6: RAKP Message 2
+0000   00 00 00 00 a4 a3 a2 a0 81 fb 54 df e1 bf 56 47
+0010   87 88 ea 7b a1 54 37 5b 00 02 00 03 00 04 00 05
+0020   00 06 00 07 00 08 00 09 2d 1a 28 18 2d 6d a8 db
+0030   d2 94 c9 00 8a 54 4f 83 f8 5b 4d 51
+
+--------------------------------------------------------------------------------
+According to IPMI SPEC Table 13-12, RAKP Message 2
+41:N Key Exchange authentication code
+2d 1a 28 18 2d 6d a8 db d2 94 c9 00 8a 54 4f 83 f8 5b 4d 51
+=> our target
+
+According to IPMI SPEC 13.31 RMCP+ Authenticated Key-Exchange Protocol (RAKP)
+Message 2: Managed System -> Remote Console
+HMACk[UID](SIDm, SIDc, Rm, Rc, GUIDc, Rolem, ULengthm, <UNamem>)
+
+=> The result of the HMAC is the key exchange authentication code(our target). To get it, we need:
+SIDm, SIDc, Rm, Rc, GUIDc, Rolem, ULengthm, <UNamem> and k[UID](password)
+
+According to the table in page 162 below the formula, Table 13-11, RAKP Message 1 and Table 13-12, RAKP Message 2, all the values (except k[UID]) can be found in the RAKP Message 1 and RAKP Message 2 as below:
+
+SIDm: Remote Console Session ID
+RAKP Message 2 5:8
+a4 a3 a2 a0
+
+SIDc: Managed System Session ID
+RAKP Message 1 5:8
+fb 2d b5 ff
+
+Rm:   Remote Console Random Number
+RAKP Message 1 9:24
+fe 5a 0a 60 f0 30 cd 69 53 ba ce a2 68 da 47 2c
+
+Rc:   Managed System Random Number
+RAKP Message 2 9:24
+81 fb 54 df e1 bf 56 47 87 88 ea 7b a1 54 37 5b
+
+GUIDc: Managed System GUID
+RAKP Message 2 25:40
+00 02 00 03 00 04 00 05 00 06 00 07 00 08 00 09
+
+Rolem: Requested Privilege Level
+RAKP Message 1 25
+14
+
+ULengthm: User Name Length byte
+RAKP Message 1 28
+05
+
+UNamem: User Name bytes
+RAKP Message 1 29:44
+61 64 6d 69 6e
+
+k[UID]: Password associated with the given username, UNamem, and role, Rolem
+password can not be found in packet; for this session it's "admin".
+admin => ascii and pad to 16 bytes => 61 64 6D 69 6E 00 00 00 00 00 00 00 00 00 00 00
+
+HMAC: Authentication Algorithm
+Table 13-10, RMCP+ Open Session Response:
+bytes 13:20 Authentication Payload => byte 17 Authentication Algorithm
+01
+=> Table 13-17, Authentication Algorithm Numbers
+RAKP-HMAC-SHA1
+
+--------------------------------------------------------------------------------
+input data:
+a4 a3 a2 a0
+fb 2d b5 ff
+fe 5a 0a 60 f0 30 cd 69 53 ba ce a2 68 da 47 2c
+81 fb 54 df e1 bf 56 47 87 88 ea 7b a1 54 37 5b
+00 02 00 03 00 04 00 05 00 06 00 07 00 08 00 09
+14
+05
+61 64 6d 69 6e
+key:
+61 64 6D 69 6E 00 00 00 00 00 00 00 00 00 00 00
+HMAC-SHA1 =>
+2d 1a 28 18 2d 6d a8 db d2 94 c9 00 8a 54 4f 83 f8 5b 4d 51
+MATCH our target!

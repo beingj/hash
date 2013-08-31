@@ -1,0 +1,460 @@
+#+TITLE: RMCP+ Packet decrypt and authcode
+#+AUTHOR: zhang.bin-jie
+#+DATE: 2013/08/29
+#+EMAIL: zhang.bin-jie@inventec.com.cn
+#+DESCRIPTION: A simple guide for RMCP+ Packet decrypt and authcode calculation
+#+LANGUAGE: en
+#+STYLE: <link rel="stylesheet" type="text/css" href="style.css" />
+#+OPTIONS: \n:t
+#+OPTIONS: num:nil
+#+OPTIONS: ^:nil
+
+* Introduction
+RMCP is short for Remote Management Control Protocol. The Distributed Management Task Force (DMTF) specifies the RMCP format.
+IPMI v2.0 defines an extended packet format and capabilities that are collectively referred to as "RMCP+".
+RMCP+ utilizes authentication algorithms that are more closely aligned with the mechanisms used for the ASF 2.0 specification. In addition, RMCP+ adds data confidentiality (encryption) and a "payloads" capability.
+
+This guide will show how to decrypt the payload and how to calculate the authcode in the RMCP+ packet.
+
+* Packets
+We will use the following packets in this guide. All packets are copied from c3_admin_admin.pcap.
+All the packets (except #9) are copied from byte offset 0x3a (IPMI Payload).
+#+BEGIN_SRC txt
+packet #4: RMCP+ Open Session Response
+0000   00 00 04 00 a4 a3 a2 a0 fb 2d b5 ff 00 00 00 08
+0010   01 00 00 08 01 00 00 08 01 00 00 08 02 00 00 08
+0020   01 ff 02 07
+#+END_SRC txt
+
+#+BEGIN_SRC txt
+packet #5: RAKP Message 1
+0000   00 00 00 00 fb 2d b5 ff fe 5a 0a 60 f0 30 cd 69
+0010   53 ba ce a2 68 da 47 2c 14 00 00 05 61 64 6d 69
+0020   6e
+#+END_SRC txt
+
+#+BEGIN_SRC txt
+packet #6: RAKP Message 2
+0000   00 00 00 00 a4 a3 a2 a0 81 fb 54 df e1 bf 56 47
+0010   87 88 ea 7b a1 54 37 5b 00 02 00 03 00 04 00 05
+0020   00 06 00 07 00 08 00 09 2d 1a 28 18 2d 6d a8 db
+0030   d2 94 c9 00 8a 54 4f 83 f8 5b 4d 51
+#+END_SRC txt
+
+#+BEGIN_SRC txt
+packet #9: encrypted IPMI 2.0 Packet (from offset 0x2e authtication type)
+0000   06 c0 fb 2d b5 ff 03 00 00 00 20 00 41 73 cc 04
+0010   c9 07 76 84 a3 b3 ac 57 f3 a8 d7 1d a3 16 8b 36
+0020   6f 3d 28 b4 96 d3 39 cc 2f 72 44 36 ff ff 02 07
+0030   1c 73 0c 19 38 51 72 14 34 38 d9 11
+#+END_SRC txt
+
+* Packet Format
+We will decrypt the IPMI payload of packet #9, and calculate the authcode of it. Let's split it first.
+#+BEGIN_SRC txt
+packet #9: encrypted IPMI 2.0 Packet (from offset 0x2e authtication type)
+0000   06 c0 fb 2d b5 ff 03 00 00 00 20 00 41 73 cc 04
+0010   c9 07 76 84 a3 b3 ac 57 f3 a8 d7 1d a3 16 8b 36
+0020   6f 3d 28 b4 96 d3 39 cc 2f 72 44 36 ff ff 02 07
+0030   1c 73 0c 19 38 51 72 14 34 38 d9 11
+#+END_SRC txt
+According to IPMI SPEC Table 13-8, RMCP/RMCP+ Packet Format for IPMI via Ethernet, packet #9 can be splited to:
+1. Auth Type/Format
+  06 => Format = RMCP+ (IPMI v2.0 only)
+2. Payload Type
+  c0 => payload is encrypted, payload is authenticated, payload is IPMI Message (per Table 13-16)
+3. IPMI v2.0 RMCP+ Session ID
+  fb 2d b5 ff
+4. Session Sequence Number
+  03 00 00 00
+5. IPMI Msg/Payload length
+  20 00
+6. Confidentiality Header (I will explain later why it's 16 bytes)
+  41 73 cc 04 c9 07 76 84 a3 b3 ac 57 f3 a8 d7 1d
+7. Payload Data (encrypted. 16 bytes, plus 16 bytes Header, total 0x20 bytes payload)
+  a3 16 8b 36 6f 3d 28 b4 96 d3 39 cc 2f 72 44 36
+8. Confidentiality Trailer
+  none => already padded to payload and encrypted
+9. Integrity PAD
+  ff ff
+10. Pad Length
+  02
+11. Next Header
+  07 => always = 07h for RMCP+ packets
+12. AuthCode (Integrity Data)
+  1c 73 0c 19 38 51 72 14 34 38 d9 11
+
+* Targets
+We have two targets:
+1. Decrypt the IPMI payload (part 7 in packet)
+  a3 16 8b 36 6f 3d 28 b4 96 d3 39 cc 2f 72 44 36
+2. AuthCode (Integrity Data) (part 12 in packet)
+  1c 73 0c 19 38 51 72 14 34 38 d9 11
+
+* Algorithms
+To decrypt the payload and calculate the authcode, we have to first find the Integrity and Confidentiality algorithms. They both can be found in the RMCP+ Open Session Response packet:
+#+BEGIN_SRC txt
+packet #4: RMCP+ Open Session Response
+0000   00 00 04 00 a4 a3 a2 a0 fb 2d b5 ff 00 00 00 08
+0010   01 00 00 08 01 00 00 08 01 00 00 08 02 00 00 08
+0020   01 ff 02 07
+#+END_SRC txt
+According to IPMI SPEC Table 13-10, RMCP+ Open Session Response:
+1. bytes 13:20 Authentication Payload => byte 17 Authentication Algorithm
+  01
+  => Table 13-17, Authentication Algorithm Numbers => RAKP-HMAC-SHA1
+2. bytes 21:28 Integrity Payload => byte 25 Integrity Algorithm
+  01
+  => Table 13-18, Integrity Algorithm Numbers => HMAC-SHA1-96
+3. bytes 29:36 Confidentiality Payload => byte 33 Confidentiality Algorithm
+  01
+  => Table 13-19, Confidentiality Algorithm Numbers => AES-CBC-128
+
+So Integrity algorithm is HMAC-SHA1-96 and Confidentiality algorithm is AES-CBC-128.
+The integrity algorithm HMAC-SHA1-96 will be used to calculate authcode, and the confidentiality algorithm AES-CBC-128 will be used to decrypt the IPMI payload.
+
+* Target 1. Decrypt the IPMI payload
+To decrypt the payload with AES-CBC-128, we need
+1. 16 bytes Initialization Vector, which is Confidentiality Header in the packet:
+  41 73 cc 04 c9 07 76 84 a3 b3 ac 57 f3 a8 d7 1d
+2. 16 bytes (128-bits) Cipher Key.
+
+This info can be found in IPMI SPEC:
+Table 13-20, AES-CBC Encrypted Payload Fields:
+#+BEGIN_QUOTE
+Confidentiality Header | Initialization Vector | 16 bytes.
+#+END_QUOTE
+This is why the confidentiality header in packet #9 is 16 bytes.
+
+13.29.2 Encryption with AES:
+#+BEGIN_QUOTE
+AES-128 uses a 128-bit Cipher Key. The Cipher Key is the first 128-bits of key "K2", K2 is generated from the Session Integrity Key (SIK) that was created during session activation. See Section 13.22, RAKP Message 3 and Section 13.32, Generating Additional Keying Material.
+#+END_QUOTE
+
+The 16 byte cipher key is got from K2, and K2 is generated from SIK, so we need first get the SIK and K2.
+ 
+** Session Integrity Key (SIK)
+According to IPMI SPEC 13.31 RMCP+ Authenticated Key-Exchange Protocol (RAKP):
+#+BEGIN_QUOTE
+SIK = HMAC KG (Rm | Rc | RoleM | ULengthM | <UNameM>)
+#+END_QUOTE
+
+SIK is the result of HMAC with data "Rm + Rc + RoleM + ULengthM + <UNameM>" and key "KG".
+
+About KG, SPEC says: "Note that K[UID] is used in place of Kg if 'one-key' logins are being used." Then What's K[UID]?
+According to IPMI SPEC 13.31 RMCP+ Authenticated Key-Exchange Protocol (RAKP):
+#+BEGIN_QUOTE
+A user needs to know both KG and a user password (key K[UID]) to establish a session, unless the channel is configured with a 'null' KG, in which case the user key (K[UID]) is used in place of KG in the algorithms. 
+#+END_QUOTE
+Our BMC uses a 'null' KG by default and none changed the KG, so K[UID] is the user password. And so the user password is used to calculate the SIK.
+
+Rm, Rc, RoleM, ULengthM and UNameM can be found in RAKP Message 1 and 2.
+#+BEGIN_SRC txt
+packet #5: RAKP Message 1
+0000   00 00 00 00 fb 2d b5 ff fe 5a 0a 60 f0 30 cd 69
+0010   53 ba ce a2 68 da 47 2c 14 00 00 05 61 64 6d 69
+0020   6e
+#+END_SRC txt
+
+#+BEGIN_SRC txt
+packet #6: RAKP Message 2
+0000   00 00 00 00 a4 a3 a2 a0 81 fb 54 df e1 bf 56 47
+0010   87 88 ea 7b a1 54 37 5b 00 02 00 03 00 04 00 05
+0020   00 06 00 07 00 08 00 09 2d 1a 28 18 2d 6d a8 db
+0030   d2 94 c9 00 8a 54 4f 83 f8 5b 4d 51
+#+END_SRC txt
+According to IPMI SPEC: the table in page 162 below the Message 2, Table 13-11, RAKP Message 1 and Table 13-12, RAKP Message 2:
++ Rm:   Remote Console Random Number
+  RAKP Message 1 bytes 9:24
+  fe 5a 0a 60 f0 30 cd 69 53 ba ce a2 68 da 47 2c
++ Rc:   Managed System Random Number
+  RAKP Message 2 bytes 9:24
+  81 fb 54 df e1 bf 56 47 87 88 ea 7b a1 54 37 5b
++ Rolem: Requested Privilege Level
+  RAKP Message 1 byte 25
+  14
++ ULengthm: User Name Length byte
+  RAKP Message 1 byte 28
+  05
++ UNamem: User Name bytes
+  RAKP Message 1 bytes 29:44
+  61 64 6d 69 6e
+
++ KG
+  K[UID] (user password) is "admin" in this session.
+  admin
+  => ASCII: 61 64 6D 69 6E
+  => pad to 16 bytes: 61 64 6D 69 6E 00 00 00 00 00 00 00 00 00 00 00
+
+** K2
+According to IPMI SPEC 13.32 Generating Additional Keying Material:
+#+BEGIN_QUOTE
+K2 = HMAC SIK (const 2)
+#+END_QUOTE
+K2 is the result of HMAC with data "const 2" and key "SIK".
+Where const 2 is
+#+BEGIN_QUOTE
+Const 2 = 0x02020202020202020202 02020202020202020202
+#+END_QUOTE
+
+Let's calculate the SIK and K2.
+
+*** Calculate the SIK
+--------------------------------------------------------------------------------
+#+BEGIN_SRC txt
+data:
+fe 5a 0a 60 f0 30 cd 69 53 ba ce a2 68 da 47 2c
+81 fb 54 df e1 bf 56 47 87 88 ea 7b a1 54 37 5b
+14
+05
+61 64 6d 69 6e
+key:
+61 64 6D 69 6E 00 00 00 00 00 00 00 00 00 00 00
+=> HMAC-SHA1:
+95 60 c5 61 dc 13 ed 48 7f f6 f4 c8 f0 8b 9f 3e 03 d7 49 40
+#+END_SRC txt
+--------------------------------------------------------------------------------
+
+*** Calculate the K2
+--------------------------------------------------------------------------------
+#+BEGIN_SRC txt
+data(const 2: 20 bytes 0x02):
+02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02
+key(SIK):
+95 60 c5 61 dc 13 ed 48 7f f6 f4 c8 f0 8b 9f 3e 03 d7 49 40
+=> HMAC-SHA1:
+d6 4d 9a a8 6d 62 02 23 2e f8 cb f0 06 31 9b 6b 16 e3 14 26
+=> first 16 bytes(128-bits):
+d6 4d 9a a8 6d 62 02 23 2e f8 cb f0 06 31 9b 6b
+#+END_SRC txt
+--------------------------------------------------------------------------------
+
+So we get all the necessary info. Let's decrypt the payload.
+
+** Decrypt the payload
+--------------------------------------------------------------------------------
+#+BEGIN_SRC txt
+packet #9: encrypted IPMI 2.0 Packet (from offset 0x2e authtication type)
+0000   06 c0 fb 2d b5 ff 03 00 00 00 20 00 41 73 cc 04
+0010   c9 07 76 84 a3 b3 ac 57 f3 a8 d7 1d a3 16 8b 36
+0020   6f 3d 28 b4 96 d3 39 cc 2f 72 44 36 ff ff 02 07
+0030   1c 73 0c 19 38 51 72 14 34 38 d9 11
+#+END_SRC txt
+
+#+BEGIN_SRC txt
+IV:
+41 73 cc 04 c9 07 76 84 a3 b3 ac 57 f3 a8 d7 1d
+key(K2):
+d6 4d 9a a8 6d 62 02 23 2e f8 cb f0 06 31 9b 6b
+encrypted payload:
+a3 16 8b 36 6f 3d 28 b4 96 d3 39 cc 2f 72 44 36
+=> AES-CBC decrypt:
+20 18 c8 81 04 3b 04 3c 01 02 03 04 05 06 07 07
+#+END_SRC txt
+According to IPMI SPEC Table 13-20, AES-CBC Encrypted Payload Fields, last byte is Confidentiality Pad Length:
+07
+#+BEGIN_SRC txt
+=> Confidentiality Pad:
+01 02 03 04 05 06 07
+=> IPMI Payload:
+20 18 c8 81 04 3b 04 3c
+#+END_SRC txt
+
+Our first target is done!
+
+* Target 2. AuthCode (Integrity Data)
+First we need find the data to be calculated and authcode we expected.
+According to IPMI SPEC 13.28.4 Integrity Algorithms:
+#+BEGIN_QUOTE
+Unless otherwise specified, the integrity algorithm is applied to the packet data starting with AuthType/Format field up to and including the field that immediately precedes the AuthCode field itself.
+#+END_QUOTE
+So the data and expected authcode are:
+#+BEGIN_SRC txt
+packet #9: encrypted IPMI 2.0 Packet (from offset 0x2e authtication type)
+0000   06 c0 fb 2d b5 ff 03 00 00 00 20 00 41 73 cc 04
+0010   c9 07 76 84 a3 b3 ac 57 f3 a8 d7 1d a3 16 8b 36
+0020   6f 3d 28 b4 96 d3 39 cc 2f 72 44 36 ff ff 02 07
+0030   1c 73 0c 19 38 51 72 14 34 38 d9 11
+#+END_SRC txt
+=>
+#+BEGIN_SRC txt
+data:
+0000   06 c0 fb 2d b5 ff 03 00 00 00 20 00 41 73 cc 04
+0010   c9 07 76 84 a3 b3 ac 57 f3 a8 d7 1d a3 16 8b 36
+0020   6f 3d 28 b4 96 d3 39 cc 2f 72 44 36 ff ff 02 07
+#+END_SRC txt
+
+#+BEGIN_SRC txt
+AuthCode (our target)
+0030   1c 73 0c 19 38 51 72 14 34 38 d9 11
+#+END_SRC txt
+
+authcode = HASH key (data)
+Where HASH is the integrity algorithm. i.e. HMAC-SHA1-96. We need find the key.
+
+According to IPMI SPEC 13.28.4 Integrity Algorithms:
+#+BEGIN_QUOTE
+HMAC-SHA1-96, HMAC-SHA256-128, and HMAC-MD5-128 utilize take the Session Integrity Key and use it to generate K1. K1 is then used as the key for use in HMAC to produce the AuthCode field. For "one one-key" logins, the user's key (password) is used.
+#+END_QUOTE
+
+Let's calculate the K1.
+
+** K1
+According to IPMI SPEC 13.32 Generating Additional Keying Material
+#+BEGIN_QUOTE
+K1 = HMAC SIK (const 1)
+Const 1 = 0x01010101010101010101 01010101010101010101
+#+END_QUOTE
+
+*** Calculate the K1
+--------------------------------------------------------------------------------
+#+BEGIN_SRC txt
+data(const 1: 20 bytes 0x01):
+01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01
+key(SIK):
+95 60 c5 61 dc 13 ed 48 7f f6 f4 c8 f0 8b 9f 3e 03 d7 49 40
+=> HMAC-SHA1:
+e8 9c b1 4c 9f 39 c6 6e 75 e8 e5 54 d4 11 60 b9 1c ba a1 e7
+#+END_SRC txt
+--------------------------------------------------------------------------------
+
+Now we can calculate authcode.
+
+** Calculate the AuthCode
+--------------------------------------------------------------------------------
+#+BEGIN_SRC txt
+data:
+06 c0 fb 2d b5 ff 03 00 00 00 20 00 41 73 cc 04
+c9 07 76 84 a3 b3 ac 57 f3 a8 d7 1d a3 16 8b 36
+6f 3d 28 b4 96 d3 39 cc 2f 72 44 36 ff ff 02 07
+key(K1):
+e8 9c b1 4c 9f 39 c6 6e 75 e8 e5 54 d4 11 60 b9 1c ba a1 e7
+=> HMAC-SHA1:
+1c 73 0c 19 38 51 72 14 34 38 d9 11 e2 a5 30 c9 7b c8 0e 4d
+#+END_SRC txt
+According to IPMI SPEC 13.28.4 Integrity Algorithms:
+#+BEGIN_QUOTE
+When the HMAC-SHA1-96 Integrity Algorithm is used the resulting AuthCode field is 12 bytes (96 bits).
+#+END_QUOTE
+So we only need the first 12 byte:
+1c 73 0c 19 38 51 72 14 34 38 d9 11
+
+Our second target is done!
+
+* More examples
+--------------------------------------------------------------------------------
+#+BEGIN_SRC txt
+packet #10
+0000   06 c0 a4 a3 a2 a0 01 00 00 00 20 00 81 fb 54 df
+0010   e1 bf 56 47 87 88 ea 7b a1 54 37 5b f3 ec 4c ee
+0020   d6 f8 09 07 5f 18 d3 33 21 b5 a5 b1 ff ff 02 07
+0030   99 f7 68 57 f3 39 cf 11 33 54 6d b4
+#+END_SRC txt
+--------------------------------------------------------------------------------
+#+BEGIN_SRC txt
+Decrypt
+IV:
+81 fb 54 df e1 bf 56 47 87 88 ea 7b a1 54 37 5b
+data:
+f3 ec 4c ee d6 f8 09 07 5f 18 d3 33 21 b5 a5 b1
+key(K2):
+d6 4d 9a a8 6d 62 02 23 2e f8 cb f0 06 31 9b 6b
+=> decrypt:
+81 1c 63 20 04 3b 00 04 9d 01 02 03 04 05 06 06
+=> remove pad:
+81 1c 63 20 04 3b 00 04 9d
+#+END_SRC txt
+--------------------------------------------------------------------------------
+#+BEGIN_SRC txt
+AuthCode
+99 f7 68 57 f3 39 cf 11 33 54 6d b4
+data:
+06 c0 a4 a3 a2 a0 01 00 00 00 20 00 81 fb 54 df
+e1 bf 56 47 87 88 ea 7b a1 54 37 5b f3 ec 4c ee
+d6 f8 09 07 5f 18 d3 33 21 b5 a5 b1 ff ff 02 07
+key(K1):
+e8 9c b1 4c 9f 39 c6 6e 75 e8 e5 54 d4 11 60 b9 1c ba a1 e7
+=> HMAC-SHA1:
+99 f7 68 57 f3 39 cf 11 33 54 6d b4 ac b8 7d 4d 8e e9 c8 2f
+=> first 12 bytes:
+99 f7 68 57 f3 39 cf 11 33 54 6d b4
+#+END_SRC txt
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+#+BEGIN_SRC txt
+packet #12
+0000   06 c0 a4 a3 a2 a0 02 00 00 00 30 00 81 fb 54 df
+0010   e1 bf 56 47 87 88 ea 7b a1 54 37 5b e4 ba d6 27
+0020   37 35 e5 14 17 71 a0 12 01 0c 2c 40 f4 7b e3 65
+0030   80 4c 78 b2 f3 99 26 59 bc 3d cf 8d ff ff 02 07
+0040   06 aa 2d 1d 65 59 5c 03 98 15 b9 b3
+#+END_SRC txt
+--------------------------------------------------------------------------------
+#+BEGIN_SRC txt
+Decrypt
+IV:
+81 fb 54 df e1 bf 56 47 87 88 ea 7b a1 54 37 5b
+data:
+e4 ba d6 27 37 35 e5 14 17 71 a0 12 01 0c 2c 40
+f4 7b e3 65 80 4c 78 b2 f3 99 26 59 bc 3d cf 8d
+key(K2):
+d6 4d 9a a8 6d 62 02 23 2e f8 cb f0 06 31 9b 6b
+=> decrypt:
+81 1c 63 20 08 01 00 24 01 02 13 02 bf a9 19 00 3c 00 00 00 00 00 de 01 02 03 04 05 06 07 08 08
+=> remove pad:
+81 1c 63 20 08 01 00 24 01 02 13 02 bf a9 19 00 3c 00 00 00 00 00 de
+#+END_SRC txt
+--------------------------------------------------------------------------------
+#+BEGIN_SRC txt
+AuthCode
+06 aa 2d 1d 65 59 5c 03 98 15 b9 b3
+data:
+06 c0 a4 a3 a2 a0 02 00 00 00 30 00 81 fb 54 df
+e1 bf 56 47 87 88 ea 7b a1 54 37 5b e4 ba d6 27
+37 35 e5 14 17 71 a0 12 01 0c 2c 40 f4 7b e3 65
+80 4c 78 b2 f3 99 26 59 bc 3d cf 8d ff ff 02 07
+key(K1):
+e8 9c b1 4c 9f 39 c6 6e 75 e8 e5 54 d4 11 60 b9 1c ba a1 e7
+=> HMAC-SHA1:
+06 aa 2d 1d 65 59 5c 03 98 15 b9 b3 5f d9 92 df 30 9f d7 57
+=> first 12 bytes:
+06 aa 2d 1d 65 59 5c 03 98 15 b9 b3
+#+END_SRC txt
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+#+BEGIN_SRC txt
+packet #13
+0000   06 c0 fb 2d b5 ff 05 00 00 00 20 00 85 60 50 c6
+0010   26 3e f1 3e 83 12 41 ba 22 4d b0 b5 e9 9e 3c af
+0020   52 f3 1f d1 05 26 54 95 f1 30 f4 ce ff ff 02 07
+0030   b6 5f c3 e0 4a 60 2f e2 02 34 ab b8
+#+END_SRC txt
+--------------------------------------------------------------------------------
+#+BEGIN_SRC txt
+IV:
+85 60 50 c6 26 3e f1 3e 83 12 41 ba 22 4d b0 b5
+data:
+e9 9e 3c af 52 f3 1f d1 05 26 54 95 f1 30 f4 ce
+key(K2):
+d6 4d 9a a8 6d 62 02 23 2e f8 cb f0 06 31 9b 6b
+=> decrypt:
+20 18 c8 81 0c 3c fb 2d b5 ff 5b 01 02 03 04 04
+=> remove pad:
+20 18 c8 81 0c 3c fb 2d b5 ff 5b
+#+END_SRC txt
+--------------------------------------------------------------------------------
+#+BEGIN_SRC txt
+AuthCode
+b6 5f c3 e0 4a 60 2f e2 02 34 ab b8
+data:
+06 c0 fb 2d b5 ff 05 00 00 00 20 00 85 60 50 c6
+26 3e f1 3e 83 12 41 ba 22 4d b0 b5 e9 9e 3c af
+52 f3 1f d1 05 26 54 95 f1 30 f4 ce ff ff 02 07
+key(K1):
+e8 9c b1 4c 9f 39 c6 6e 75 e8 e5 54 d4 11 60 b9 1c ba a1 e7
+=> HMAC-SHA1:
+b6 5f c3 e0 4a 60 2f e2 02 34 ab b8 93 72 32 d4 d2 bd ae dc
+=> first 12 bytes:
+b6 5f c3 e0 4a 60 2f e2 02 34 ab b8
+#+END_SRC txt
+--------------------------------------------------------------------------------

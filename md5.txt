@@ -1,0 +1,53 @@
+================================================================================
+MD5 Authcode
+================================================================================
+md5_admin_admin.pcap
+packet #9 (from byte offset 0x2e authtication type)
+0000   02 c6 23 7b 32 fb 2d b5 ff 79 32 a1 38 45 26 28
+0010   87 39 c4 e9 99 f2 3e ff db 08 20 18 c8 81 0c 3b
+0020   04 34
+
+--------------------------------------------------------------------------------
+According to IPMI SPEC Table 13-8, RMCP/RMCP+ Packet Format for IPMI via Ethernet:
+1. Auth Type/Format
+02 => MD5
+2. Session Sequence Number
+c6 23 7b 32
+3. IPMI v1.5 Session ID
+fb 2d b5 ff
+4. AuthCode
+79 32 a1 38 45 26 28 87 39 c4 e9 99 f2 3e ff db
+5. IPMI Msg/Payload length
+08
+6. IPMI Payload
+20 18 c8 81 0c 3b 04 34
+
+According to IPMI SPEC Table 22-22, AuthCode Algorithms:
+MD5: Authcode = H(password + Session ID + IPMI Message data + session_seq# + password)
+
+All the values (except password) can be found in the packet above. So:
+1. password
+password can not be found in packet; for this session it's "admin".
+According to IPMI SPEC 22.17.1 Authcode Algorithms: The password/key is 0 padded to 16-bytes for all specified authentication types.
+admin => ascii: 61 64 6d 69 6e => pad to 16 bytes: 61 64 6D 69 6E 00 00 00 00 00 00 00 00 00 00 00
+2. Session ID
+fb 2d b5 ff
+3. IPMI Message data (not include message length)
+20 18 c8 81 0c 3b 04 34
+4. session_seq#
+c6 23 7b 32
+5. password
+same as 1
+6. Authcode (our target)
+79 32 a1 38 45 26 28 87 39 c4 e9 99 f2 3e ff db
+
+--------------------------------------------------------------------------------
+input data:
+61 64 6d 69 6e 00 00 00 00 00 00 00 00 00 00 00
+fb 2d b5 ff
+20 18 c8 81 0c 3b 04 34
+c6 23 7b 32
+61 64 6d 69 6e 00 00 00 00 00 00 00 00 00 00 00
+MD5 =>
+79 32 a1 38 45 26 28 87 39 c4 e9 99 f2 3e ff db
+MATCH our target!

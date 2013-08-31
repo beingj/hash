@@ -1,0 +1,892 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+               "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<title>RMCP+ Packet decrypt and authcode</title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8"/>
+<meta name="title" content="RMCP+ Packet decrypt and authcode"/>
+<meta name="generator" content="Org-mode"/>
+<meta name="generated" content="2013/08/29"/>
+<meta name="author" content="zhang.bin-jie"/>
+<meta name="description" content="A simple guide for RMCP+ Packet decrypt and authcode calculation"/>
+<meta name="keywords" content=""/>
+<style type="text/css">
+ <!--/*--><![CDATA[/*><!--*/
+  html { font-family: Times, serif; font-size: 12pt; }
+  .title  { text-align: center; }
+  .todo   { color: red; }
+  .done   { color: green; }
+  .tag    { background-color: #add8e6; font-weight:normal }
+  .target { }
+  .timestamp { color: #bebebe; }
+  .timestamp-kwd { color: #5f9ea0; }
+  .right  {margin-left:auto; margin-right:0px;  text-align:right;}
+  .left   {margin-left:0px;  margin-right:auto; text-align:left;}
+  .center {margin-left:auto; margin-right:auto; text-align:center;}
+  p.verse { margin-left: 3% }
+  pre {
+	border: 1pt solid #AEBDCC;
+	background-color: #F3F5F7;
+	padding: 5pt;
+	font-family: courier, monospace;
+        font-size: 90%;
+        overflow:auto;
+  }
+  table { border-collapse: collapse; }
+  td, th { vertical-align: top;  }
+  th.right  { text-align:center;  }
+  th.left   { text-align:center;   }
+  th.center { text-align:center; }
+  td.right  { text-align:right;  }
+  td.left   { text-align:left;   }
+  td.center { text-align:center; }
+  dt { font-weight: bold; }
+  div.figure { padding: 0.5em; }
+  div.figure p { text-align: center; }
+  div.inlinetask {
+    padding:10px;
+    border:2px solid gray;
+    margin:10px;
+    background: #ffffcc;
+  }
+  textarea { overflow-x: auto; }
+  .linenr { font-size:smaller }
+  .code-highlighted {background-color:#ffff00;}
+  .org-info-js_info-navigation { border-style:none; }
+  #org-info-js_console-label { font-size:10px; font-weight:bold;
+                               white-space:nowrap; }
+  .org-info-js_search-highlight {background-color:#ffff00; color:#000000;
+                                 font-weight:bold; }
+  /*]]>*/-->
+</style>
+<link rel="stylesheet" type="text/css" href="style.css" />
+<script type="text/javascript">
+<!--/*--><![CDATA[/*><!--*/
+ function CodeHighlightOn(elem, id)
+ {
+   var target = document.getElementById(id);
+   if(null != target) {
+     elem.cacheClassElem = elem.className;
+     elem.cacheClassTarget = target.className;
+     target.className = "code-highlighted";
+     elem.className   = "code-highlighted";
+   }
+ }
+ function CodeHighlightOff(elem, id)
+ {
+   var target = document.getElementById(id);
+   if(elem.cacheClassElem)
+     elem.className = elem.cacheClassElem;
+   if(elem.cacheClassTarget)
+     target.className = elem.cacheClassTarget;
+ }
+/*]]>*///-->
+</script>
+
+</head>
+<body>
+
+<div id="preamble">
+
+</div>
+
+<div id="content">
+<h1 class="title">RMCP+ Packet decrypt and authcode</h1>
+
+
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#sec-1">Introduction</a></li>
+<li><a href="#sec-2">Packets</a></li>
+<li><a href="#sec-3">Packet Format</a></li>
+<li><a href="#sec-4">Targets</a></li>
+<li><a href="#sec-5">Algorithms</a></li>
+<li><a href="#sec-6">Target 1. Decrypt the IPMI payload</a>
+<ul>
+<li><a href="#sec-6-1">Session Integrity Key (SIK)</a></li>
+<li><a href="#sec-6-2">K2</a>
+<ul>
+<li><a href="#sec-6-2-1">Calculate the SIK</a></li>
+<li><a href="#sec-6-2-2">Calculate the K2</a></li>
+</ul>
+</li>
+<li><a href="#sec-6-3">Decrypt the payload</a></li>
+</ul>
+</li>
+<li><a href="#sec-7">Target 2. AuthCode (Integrity Data)</a>
+<ul>
+<li><a href="#sec-7-1">K1</a>
+<ul>
+<li><a href="#sec-7-1-1">Calculate the K1</a></li>
+</ul>
+</li>
+<li><a href="#sec-7-2">Calculate the AuthCode</a></li>
+</ul>
+</li>
+<li><a href="#sec-8">More examples</a></li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-1" class="outline-2">
+<h2 id="sec-1">Introduction</h2>
+<div class="outline-text-2" id="text-1">
+
+<p>RMCP is short for Remote Management Control Protocol. The Distributed Management Task Force (DMTF) specifies the RMCP format.<br/>
+IPMI v2.0 defines an extended packet format and capabilities that are collectively referred to as "RMCP+".<br/>
+RMCP+ utilizes authentication algorithms that are more closely aligned with the mechanisms used for the ASF 2.0 specification. In addition, RMCP+ adds data confidentiality (encryption) and a "payloads" capability.<br/>
+</p>
+<p><br/>
+This guide will show how to decrypt the payload and how to calculate the authcode in the RMCP+ packet.<br/>
+</p>
+<p><br/>
+</p></div>
+
+</div>
+
+<div id="outline-container-2" class="outline-2">
+<h2 id="sec-2">Packets</h2>
+<div class="outline-text-2" id="text-2">
+
+<p>We will use the following packets in this guide. All packets are copied from c3_admin_admin.pcap.<br/>
+All the packets (except #9) are copied from byte offset 0x3a (IPMI Payload).<br/>
+</p>
+<p><br/>
+<pre class="example">packet #4: RMCP+ Open Session Response
+0000   00 00 04 00 a4 a3 a2 a0 fb 2d b5 ff 00 00 00 08
+0010   01 00 00 08 01 00 00 08 01 00 00 08 02 00 00 08
+0020   01 ff 02 07
+</pre>
+
+
+
+<pre class="example">packet #5: RAKP Message 1
+0000   00 00 00 00 fb 2d b5 ff fe 5a 0a 60 f0 30 cd 69
+0010   53 ba ce a2 68 da 47 2c 14 00 00 05 61 64 6d 69
+0020   6e
+</pre>
+
+
+
+<pre class="example">packet #6: RAKP Message 2
+0000   00 00 00 00 a4 a3 a2 a0 81 fb 54 df e1 bf 56 47
+0010   87 88 ea 7b a1 54 37 5b 00 02 00 03 00 04 00 05
+0020   00 06 00 07 00 08 00 09 2d 1a 28 18 2d 6d a8 db
+0030   d2 94 c9 00 8a 54 4f 83 f8 5b 4d 51
+</pre>
+
+
+
+<pre class="example">packet #9: encrypted IPMI 2.0 Packet (from offset 0x2e authtication type)
+0000   06 c0 fb 2d b5 ff 03 00 00 00 20 00 41 73 cc 04
+0010   c9 07 76 84 a3 b3 ac 57 f3 a8 d7 1d a3 16 8b 36
+0020   6f 3d 28 b4 96 d3 39 cc 2f 72 44 36 ff ff 02 07
+0030   1c 73 0c 19 38 51 72 14 34 38 d9 11
+</pre>
+
+
+</p></div>
+
+</div>
+
+<div id="outline-container-3" class="outline-2">
+<h2 id="sec-3">Packet Format</h2>
+<div class="outline-text-2" id="text-3">
+
+<p>We will decrypt the IPMI payload of packet #9, and calculate the authcode of it. Let's split it first.<br/>
+</p>
+<p><br/>
+<pre class="example">packet #9: encrypted IPMI 2.0 Packet (from offset 0x2e authtication type)
+0000   06 c0 fb 2d b5 ff 03 00 00 00 20 00 41 73 cc 04
+0010   c9 07 76 84 a3 b3 ac 57 f3 a8 d7 1d a3 16 8b 36
+0020   6f 3d 28 b4 96 d3 39 cc 2f 72 44 36 ff ff 02 07
+0030   1c 73 0c 19 38 51 72 14 34 38 d9 11
+</pre>
+
+According to IPMI SPEC Table 13-8, RMCP/RMCP+ Packet Format for IPMI via Ethernet, packet #9 can be splited to:<br/>
+</p><ol>
+<li>Auth Type/Format<br/>
+  06 =&gt; Format = RMCP+ (IPMI v2.0 only)<br/>
+</li>
+<li>Payload Type<br/>
+  c0 =&gt; payload is encrypted, payload is authenticated, payload is IPMI Message (per Table 13-16)<br/>
+</li>
+<li>IPMI v2.0 RMCP+ Session ID<br/>
+  fb 2d b5 ff<br/>
+</li>
+<li>Session Sequence Number<br/>
+  03 00 00 00<br/>
+</li>
+<li>IPMI Msg/Payload length<br/>
+  20 00<br/>
+</li>
+<li>Confidentiality Header (I will explain later why it's 16 bytes)<br/>
+  41 73 cc 04 c9 07 76 84 a3 b3 ac 57 f3 a8 d7 1d<br/>
+</li>
+<li>Payload Data (encrypted. 16 bytes, plus 16 bytes Header, total 0x20 bytes payload)<br/>
+  a3 16 8b 36 6f 3d 28 b4 96 d3 39 cc 2f 72 44 36<br/>
+</li>
+<li>Confidentiality Trailer<br/>
+  none =&gt; already padded to payload and encrypted<br/>
+</li>
+<li>Integrity PAD<br/>
+  ff ff<br/>
+</li>
+<li>Pad Length<br/>
+  02<br/>
+</li>
+<li>Next Header<br/>
+  07 =&gt; always = 07h for RMCP+ packets<br/>
+</li>
+<li>AuthCode (Integrity Data)<br/>
+  1c 73 0c 19 38 51 72 14 34 38 d9 11<br/>
+</li>
+</ol>
+
+
+<p><br/>
+</p></div>
+
+</div>
+
+<div id="outline-container-4" class="outline-2">
+<h2 id="sec-4">Targets</h2>
+<div class="outline-text-2" id="text-4">
+
+<p>We have two targets:<br/>
+</p><ol>
+<li>Decrypt the IPMI payload (part 7 in packet)<br/>
+  a3 16 8b 36 6f 3d 28 b4 96 d3 39 cc 2f 72 44 36<br/>
+</li>
+<li>AuthCode (Integrity Data) (part 12 in packet)<br/>
+  1c 73 0c 19 38 51 72 14 34 38 d9 11<br/>
+</li>
+</ol>
+
+
+<p><br/>
+</p></div>
+
+</div>
+
+<div id="outline-container-5" class="outline-2">
+<h2 id="sec-5">Algorithms</h2>
+<div class="outline-text-2" id="text-5">
+
+<p>To decrypt the payload and calculate the authcode, we have to first find the Integrity and Confidentiality algorithms. They both can be found in the RMCP+ Open Session Response packet:<br/>
+</p>
+<p><br/>
+<pre class="example">packet #4: RMCP+ Open Session Response
+0000   00 00 04 00 a4 a3 a2 a0 fb 2d b5 ff 00 00 00 08
+0010   01 00 00 08 01 00 00 08 01 00 00 08 02 00 00 08
+0020   01 ff 02 07
+</pre>
+
+According to IPMI SPEC Table 13-10, RMCP+ Open Session Response:<br/>
+</p><ol>
+<li>bytes 13:20 Authentication Payload =&gt; byte 17 Authentication Algorithm<br/>
+  01<br/>
+  =&gt; Table 13-17, Authentication Algorithm Numbers =&gt; RAKP-HMAC-SHA1<br/>
+</li>
+<li>bytes 21:28 Integrity Payload =&gt; byte 25 Integrity Algorithm<br/>
+  01<br/>
+  =&gt; Table 13-18, Integrity Algorithm Numbers =&gt; HMAC-SHA1-96<br/>
+</li>
+<li>bytes 29:36 Confidentiality Payload =&gt; byte 33 Confidentiality Algorithm<br/>
+  01<br/>
+  =&gt; Table 13-19, Confidentiality Algorithm Numbers =&gt; AES-CBC-128<br/>
+</li>
+</ol>
+
+
+<p><br/>
+So Integrity algorithm is HMAC-SHA1-96 and Confidentiality algorithm is AES-CBC-128.<br/>
+The integrity algorithm HMAC-SHA1-96 will be used to calculate authcode, and the confidentiality algorithm AES-CBC-128 will be used to decrypt the IPMI payload.<br/>
+</p>
+<p><br/>
+</p></div>
+
+</div>
+
+<div id="outline-container-6" class="outline-2">
+<h2 id="sec-6">Target 1. Decrypt the IPMI payload</h2>
+<div class="outline-text-2" id="text-6">
+
+<p>To decrypt the payload with AES-CBC-128, we need<br/>
+</p><ol>
+<li>16 bytes Initialization Vector, which is Confidentiality Header in the packet:<br/>
+  41 73 cc 04 c9 07 76 84 a3 b3 ac 57 f3 a8 d7 1d<br/>
+</li>
+<li>16 bytes (128-bits) Cipher Key.<br/>
+</li>
+</ol>
+
+
+<p><br/>
+This info can be found in IPMI SPEC:<br/>
+Table 13-20, AES-CBC Encrypted Payload Fields:<br/>
+</p><blockquote>
+
+<p>Confidentiality Header | Initialization Vector | 16 bytes.<br/>
+</p>
+</blockquote>
+
+
+<p><br/>
+This is why the confidentiality header in packet #9 is 16 bytes.<br/>
+</p>
+<p><br/>
+13.29.2 Encryption with AES:<br/>
+</p><blockquote>
+
+<p>AES-128 uses a 128-bit Cipher Key. The Cipher Key is the first 128-bits of key "K2", K2 is generated from the Session Integrity Key (SIK) that was created during session activation. See Section 13.22, RAKP Message 3 and Section 13.32, Generating Additional Keying Material.<br/>
+</p>
+</blockquote>
+
+
+<p><br/>
+The 16 byte cipher key is got from K2, and K2 is generated from SIK, so we need first get the SIK and K2.<br/>
+</p>
+<p> <br/>
+</p>
+</div>
+
+<div id="outline-container-6-1" class="outline-3">
+<h3 id="sec-6-1">Session Integrity Key (SIK)</h3>
+<div class="outline-text-3" id="text-6-1">
+
+<p>According to IPMI SPEC 13.31 RMCP+ Authenticated Key-Exchange Protocol (RAKP):<br/>
+</p><blockquote>
+
+<p>SIK = HMAC KG (Rm | Rc | RoleM | ULengthM | &lt;UNameM&gt;)<br/>
+</p>
+</blockquote>
+
+
+<p><br/>
+SIK is the result of HMAC with data "Rm + Rc + RoleM + ULengthM + &lt;UNameM&gt;" and key "KG".<br/>
+</p>
+<p><br/>
+About KG, SPEC says: "Note that K[UID] is used in place of Kg if 'one-key' logins are being used." Then What's K[UID]?<br/>
+According to IPMI SPEC 13.31 RMCP+ Authenticated Key-Exchange Protocol (RAKP):<br/>
+</p><blockquote>
+
+<p>A user needs to know both KG and a user password (key K[UID]) to establish a session, unless the channel is configured with a 'null' KG, in which case the user key (K[UID]) is used in place of KG in the algorithms. <br/>
+</p>
+</blockquote>
+
+
+<p><br/>
+Our BMC uses a 'null' KG by default and none changed the KG, so K[UID] is the user password. And so the user password is used to calculate the SIK.<br/>
+</p>
+<p><br/>
+Rm, Rc, RoleM, ULengthM and UNameM can be found in RAKP Message 1 and 2.<br/>
+</p>
+<p><br/>
+<pre class="example">packet #5: RAKP Message 1
+0000   00 00 00 00 fb 2d b5 ff fe 5a 0a 60 f0 30 cd 69
+0010   53 ba ce a2 68 da 47 2c 14 00 00 05 61 64 6d 69
+0020   6e
+</pre>
+
+
+
+<pre class="example">packet #6: RAKP Message 2
+0000   00 00 00 00 a4 a3 a2 a0 81 fb 54 df e1 bf 56 47
+0010   87 88 ea 7b a1 54 37 5b 00 02 00 03 00 04 00 05
+0020   00 06 00 07 00 08 00 09 2d 1a 28 18 2d 6d a8 db
+0030   d2 94 c9 00 8a 54 4f 83 f8 5b 4d 51
+</pre>
+
+According to IPMI SPEC: the table in page 162 below the Message 2, Table 13-11, RAKP Message 1 and Table 13-12, RAKP Message 2:<br/>
+</p><ul>
+<li>Rm:   Remote Console Random Number<br/>
+  RAKP Message 1 bytes 9:24<br/>
+  fe 5a 0a 60 f0 30 cd 69 53 ba ce a2 68 da 47 2c<br/>
+</li>
+<li>Rc:   Managed System Random Number<br/>
+  RAKP Message 2 bytes 9:24<br/>
+  81 fb 54 df e1 bf 56 47 87 88 ea 7b a1 54 37 5b<br/>
+</li>
+<li>Rolem: Requested Privilege Level<br/>
+  RAKP Message 1 byte 25<br/>
+  14<br/>
+</li>
+<li>ULengthm: User Name Length byte<br/>
+  RAKP Message 1 byte 28<br/>
+  05<br/>
+</li>
+<li>UNamem: User Name bytes<br/>
+  RAKP Message 1 bytes 29:44<br/>
+  61 64 6d 69 6e<br/>
+
+<p><br/>
+</p></li>
+<li>KG<br/>
+  K[UID] (user password) is "admin" in this session.<br/>
+  admin<br/>
+  =&gt; ASCII: 61 64 6D 69 6E<br/>
+  =&gt; pad to 16 bytes: 61 64 6D 69 6E 00 00 00 00 00 00 00 00 00 00 00<br/>
+</li>
+</ul>
+
+
+<p><br/>
+</p></div>
+
+</div>
+
+<div id="outline-container-6-2" class="outline-3">
+<h3 id="sec-6-2">K2</h3>
+<div class="outline-text-3" id="text-6-2">
+
+<p>According to IPMI SPEC 13.32 Generating Additional Keying Material:<br/>
+</p><blockquote>
+
+<p>K2 = HMAC SIK (const 2)<br/>
+</p>
+</blockquote>
+
+
+<p><br/>
+K2 is the result of HMAC with data "const 2" and key "SIK".<br/>
+Where const 2 is<br/>
+</p><blockquote>
+
+<p>Const 2 = 0x02020202020202020202 02020202020202020202<br/>
+</p>
+</blockquote>
+
+
+<p><br/>
+Let's calculate the SIK and K2.<br/>
+</p>
+<p><br/>
+</p>
+</div>
+
+<div id="outline-container-6-2-1" class="outline-4">
+<h4 id="sec-6-2-1">Calculate the SIK</h4>
+<div class="outline-text-4" id="text-6-2-1">
+
+
+<hr/>
+
+<p><br/>
+<pre class="example">data:
+fe 5a 0a 60 f0 30 cd 69 53 ba ce a2 68 da 47 2c
+81 fb 54 df e1 bf 56 47 87 88 ea 7b a1 54 37 5b
+14
+05
+61 64 6d 69 6e
+key:
+61 64 6D 69 6E 00 00 00 00 00 00 00 00 00 00 00
+=&gt; HMAC-SHA1:
+95 60 c5 61 dc 13 ed 48 7f f6 f4 c8 f0 8b 9f 3e 03 d7 49 40
+</pre>
+
+
+</p>
+<hr/>
+
+<p><br/>
+</p></div>
+
+</div>
+
+<div id="outline-container-6-2-2" class="outline-4">
+<h4 id="sec-6-2-2">Calculate the K2</h4>
+<div class="outline-text-4" id="text-6-2-2">
+
+
+<hr/>
+
+<p><br/>
+<pre class="example">data(const 2: 20 bytes 0x02):
+02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02
+key(SIK):
+95 60 c5 61 dc 13 ed 48 7f f6 f4 c8 f0 8b 9f 3e 03 d7 49 40
+=&gt; HMAC-SHA1:
+d6 4d 9a a8 6d 62 02 23 2e f8 cb f0 06 31 9b 6b 16 e3 14 26
+=&gt; first 16 bytes(128-bits):
+d6 4d 9a a8 6d 62 02 23 2e f8 cb f0 06 31 9b 6b
+</pre>
+
+
+</p>
+<hr/>
+
+<p><br/>
+So we get all the necessary info. Let's decrypt the payload.<br/>
+</p>
+<p><br/>
+</p></div>
+</div>
+
+</div>
+
+<div id="outline-container-6-3" class="outline-3">
+<h3 id="sec-6-3">Decrypt the payload</h3>
+<div class="outline-text-3" id="text-6-3">
+
+
+<hr/>
+
+<p><br/>
+<pre class="example">packet #9: encrypted IPMI 2.0 Packet (from offset 0x2e authtication type)
+0000   06 c0 fb 2d b5 ff 03 00 00 00 20 00 41 73 cc 04
+0010   c9 07 76 84 a3 b3 ac 57 f3 a8 d7 1d a3 16 8b 36
+0020   6f 3d 28 b4 96 d3 39 cc 2f 72 44 36 ff ff 02 07
+0030   1c 73 0c 19 38 51 72 14 34 38 d9 11
+</pre>
+
+
+
+<pre class="example">IV:
+41 73 cc 04 c9 07 76 84 a3 b3 ac 57 f3 a8 d7 1d
+key(K2):
+d6 4d 9a a8 6d 62 02 23 2e f8 cb f0 06 31 9b 6b
+encrypted payload:
+a3 16 8b 36 6f 3d 28 b4 96 d3 39 cc 2f 72 44 36
+=&gt; AES-CBC decrypt:
+20 18 c8 81 04 3b 04 3c 01 02 03 04 05 06 07 07
+</pre>
+
+According to IPMI SPEC Table 13-20, AES-CBC Encrypted Payload Fields, last byte is Confidentiality Pad Length:<br/>
+07<br/>
+</p>
+<p><br/>
+<pre class="example">=&gt; Confidentiality Pad:
+01 02 03 04 05 06 07
+=&gt; IPMI Payload:
+20 18 c8 81 04 3b 04 3c
+</pre>
+
+
+Our first target is done!<br/>
+</p>
+<p><br/>
+</p></div>
+</div>
+
+</div>
+
+<div id="outline-container-7" class="outline-2">
+<h2 id="sec-7">Target 2. AuthCode (Integrity Data)</h2>
+<div class="outline-text-2" id="text-7">
+
+<p>First we need find the data to be calculated and authcode we expected.<br/>
+According to IPMI SPEC 13.28.4 Integrity Algorithms:<br/>
+</p><blockquote>
+
+<p>Unless otherwise specified, the integrity algorithm is applied to the packet data starting with AuthType/Format field up to and including the field that immediately precedes the AuthCode field itself.<br/>
+</p>
+</blockquote>
+
+
+<p><br/>
+So the data and expected authcode are:<br/>
+</p>
+<p><br/>
+<pre class="example">packet #9: encrypted IPMI 2.0 Packet (from offset 0x2e authtication type)
+0000   06 c0 fb 2d b5 ff 03 00 00 00 20 00 41 73 cc 04
+0010   c9 07 76 84 a3 b3 ac 57 f3 a8 d7 1d a3 16 8b 36
+0020   6f 3d 28 b4 96 d3 39 cc 2f 72 44 36 ff ff 02 07
+0030   1c 73 0c 19 38 51 72 14 34 38 d9 11
+</pre>
+
+=&gt;<br/>
+</p>
+<p><br/>
+<pre class="example">data:
+0000   06 c0 fb 2d b5 ff 03 00 00 00 20 00 41 73 cc 04
+0010   c9 07 76 84 a3 b3 ac 57 f3 a8 d7 1d a3 16 8b 36
+0020   6f 3d 28 b4 96 d3 39 cc 2f 72 44 36 ff ff 02 07
+</pre>
+
+
+
+<pre class="example">AuthCode (our target)
+0030   1c 73 0c 19 38 51 72 14 34 38 d9 11
+</pre>
+
+
+authcode = HASH key (data)<br/>
+Where HASH is the integrity algorithm. i.e. HMAC-SHA1-96. We need find the key.<br/>
+</p>
+<p><br/>
+According to IPMI SPEC 13.28.4 Integrity Algorithms:<br/>
+</p><blockquote>
+
+<p>HMAC-SHA1-96, HMAC-SHA256-128, and HMAC-MD5-128 utilize take the Session Integrity Key and use it to generate K1. K1 is then used as the key for use in HMAC to produce the AuthCode field. For "one one-key" logins, the user's key (password) is used.<br/>
+</p>
+</blockquote>
+
+
+<p><br/>
+Let's calculate the K1.<br/>
+</p>
+<p><br/>
+</p>
+</div>
+
+<div id="outline-container-7-1" class="outline-3">
+<h3 id="sec-7-1">K1</h3>
+<div class="outline-text-3" id="text-7-1">
+
+<p>According to IPMI SPEC 13.32 Generating Additional Keying Material<br/>
+</p><blockquote>
+
+<p>K1 = HMAC SIK (const 1)<br/>
+Const 1 = 0x01010101010101010101 01010101010101010101<br/>
+</p>
+</blockquote>
+
+
+<p><br/>
+</p>
+</div>
+
+<div id="outline-container-7-1-1" class="outline-4">
+<h4 id="sec-7-1-1">Calculate the K1</h4>
+<div class="outline-text-4" id="text-7-1-1">
+
+
+<hr/>
+
+<p><br/>
+<pre class="example">data(const 1: 20 bytes 0x01):
+01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01
+key(SIK):
+95 60 c5 61 dc 13 ed 48 7f f6 f4 c8 f0 8b 9f 3e 03 d7 49 40
+=&gt; HMAC-SHA1:
+e8 9c b1 4c 9f 39 c6 6e 75 e8 e5 54 d4 11 60 b9 1c ba a1 e7
+</pre>
+
+
+</p>
+<hr/>
+
+<p><br/>
+Now we can calculate authcode.<br/>
+</p>
+<p><br/>
+</p></div>
+</div>
+
+</div>
+
+<div id="outline-container-7-2" class="outline-3">
+<h3 id="sec-7-2">Calculate the AuthCode</h3>
+<div class="outline-text-3" id="text-7-2">
+
+
+<hr/>
+
+<p><br/>
+<pre class="example">data:
+06 c0 fb 2d b5 ff 03 00 00 00 20 00 41 73 cc 04
+c9 07 76 84 a3 b3 ac 57 f3 a8 d7 1d a3 16 8b 36
+6f 3d 28 b4 96 d3 39 cc 2f 72 44 36 ff ff 02 07
+key(K1):
+e8 9c b1 4c 9f 39 c6 6e 75 e8 e5 54 d4 11 60 b9 1c ba a1 e7
+=&gt; HMAC-SHA1:
+1c 73 0c 19 38 51 72 14 34 38 d9 11 e2 a5 30 c9 7b c8 0e 4d
+</pre>
+
+According to IPMI SPEC 13.28.4 Integrity Algorithms:<br/>
+</p><blockquote>
+
+<p>When the HMAC-SHA1-96 Integrity Algorithm is used the resulting AuthCode field is 12 bytes (96 bits).<br/>
+</p>
+</blockquote>
+
+
+<p><br/>
+So we only need the first 12 byte:<br/>
+1c 73 0c 19 38 51 72 14 34 38 d9 11<br/>
+</p>
+<p><br/>
+Our second target is done!<br/>
+</p>
+<p><br/>
+</p></div>
+</div>
+
+</div>
+
+<div id="outline-container-8" class="outline-2">
+<h2 id="sec-8">More examples</h2>
+<div class="outline-text-2" id="text-8">
+
+
+<hr/>
+
+<p><br/>
+<pre class="example">packet #10
+0000   06 c0 a4 a3 a2 a0 01 00 00 00 20 00 81 fb 54 df
+0010   e1 bf 56 47 87 88 ea 7b a1 54 37 5b f3 ec 4c ee
+0020   d6 f8 09 07 5f 18 d3 33 21 b5 a5 b1 ff ff 02 07
+0030   99 f7 68 57 f3 39 cf 11 33 54 6d b4
+</pre>
+
+
+</p>
+<hr/>
+
+<p><br/>
+<pre class="example">Decrypt
+IV:
+81 fb 54 df e1 bf 56 47 87 88 ea 7b a1 54 37 5b
+data:
+f3 ec 4c ee d6 f8 09 07 5f 18 d3 33 21 b5 a5 b1
+key(K2):
+d6 4d 9a a8 6d 62 02 23 2e f8 cb f0 06 31 9b 6b
+=&gt; decrypt:
+81 1c 63 20 04 3b 00 04 9d 01 02 03 04 05 06 06
+=&gt; remove pad:
+81 1c 63 20 04 3b 00 04 9d
+</pre>
+
+
+</p>
+<hr/>
+
+<p><br/>
+<pre class="example">AuthCode
+99 f7 68 57 f3 39 cf 11 33 54 6d b4
+data:
+06 c0 a4 a3 a2 a0 01 00 00 00 20 00 81 fb 54 df
+e1 bf 56 47 87 88 ea 7b a1 54 37 5b f3 ec 4c ee
+d6 f8 09 07 5f 18 d3 33 21 b5 a5 b1 ff ff 02 07
+key(K1):
+e8 9c b1 4c 9f 39 c6 6e 75 e8 e5 54 d4 11 60 b9 1c ba a1 e7
+=&gt; HMAC-SHA1:
+99 f7 68 57 f3 39 cf 11 33 54 6d b4 ac b8 7d 4d 8e e9 c8 2f
+=&gt; first 12 bytes:
+99 f7 68 57 f3 39 cf 11 33 54 6d b4
+</pre>
+
+
+</p>
+<hr/>
+
+<hr/>
+
+<p><br/>
+<pre class="example">packet #12
+0000   06 c0 a4 a3 a2 a0 02 00 00 00 30 00 81 fb 54 df
+0010   e1 bf 56 47 87 88 ea 7b a1 54 37 5b e4 ba d6 27
+0020   37 35 e5 14 17 71 a0 12 01 0c 2c 40 f4 7b e3 65
+0030   80 4c 78 b2 f3 99 26 59 bc 3d cf 8d ff ff 02 07
+0040   06 aa 2d 1d 65 59 5c 03 98 15 b9 b3
+</pre>
+
+
+</p>
+<hr/>
+
+<p><br/>
+<pre class="example">Decrypt
+IV:
+81 fb 54 df e1 bf 56 47 87 88 ea 7b a1 54 37 5b
+data:
+e4 ba d6 27 37 35 e5 14 17 71 a0 12 01 0c 2c 40
+f4 7b e3 65 80 4c 78 b2 f3 99 26 59 bc 3d cf 8d
+key(K2):
+d6 4d 9a a8 6d 62 02 23 2e f8 cb f0 06 31 9b 6b
+=&gt; decrypt:
+81 1c 63 20 08 01 00 24 01 02 13 02 bf a9 19 00 3c 00 00 00 00 00 de 01 02 03 04 05 06 07 08 08
+=&gt; remove pad:
+81 1c 63 20 08 01 00 24 01 02 13 02 bf a9 19 00 3c 00 00 00 00 00 de
+</pre>
+
+
+</p>
+<hr/>
+
+<p><br/>
+<pre class="example">AuthCode
+06 aa 2d 1d 65 59 5c 03 98 15 b9 b3
+data:
+06 c0 a4 a3 a2 a0 02 00 00 00 30 00 81 fb 54 df
+e1 bf 56 47 87 88 ea 7b a1 54 37 5b e4 ba d6 27
+37 35 e5 14 17 71 a0 12 01 0c 2c 40 f4 7b e3 65
+80 4c 78 b2 f3 99 26 59 bc 3d cf 8d ff ff 02 07
+key(K1):
+e8 9c b1 4c 9f 39 c6 6e 75 e8 e5 54 d4 11 60 b9 1c ba a1 e7
+=&gt; HMAC-SHA1:
+06 aa 2d 1d 65 59 5c 03 98 15 b9 b3 5f d9 92 df 30 9f d7 57
+=&gt; first 12 bytes:
+06 aa 2d 1d 65 59 5c 03 98 15 b9 b3
+</pre>
+
+
+</p>
+<hr/>
+
+<hr/>
+
+<p><br/>
+<pre class="example">packet #13
+0000   06 c0 fb 2d b5 ff 05 00 00 00 20 00 85 60 50 c6
+0010   26 3e f1 3e 83 12 41 ba 22 4d b0 b5 e9 9e 3c af
+0020   52 f3 1f d1 05 26 54 95 f1 30 f4 ce ff ff 02 07
+0030   b6 5f c3 e0 4a 60 2f e2 02 34 ab b8
+</pre>
+
+
+</p>
+<hr/>
+
+<p><br/>
+<pre class="example">IV:
+85 60 50 c6 26 3e f1 3e 83 12 41 ba 22 4d b0 b5
+data:
+e9 9e 3c af 52 f3 1f d1 05 26 54 95 f1 30 f4 ce
+key(K2):
+d6 4d 9a a8 6d 62 02 23 2e f8 cb f0 06 31 9b 6b
+=&gt; decrypt:
+20 18 c8 81 0c 3c fb 2d b5 ff 5b 01 02 03 04 04
+=&gt; remove pad:
+20 18 c8 81 0c 3c fb 2d b5 ff 5b
+</pre>
+
+
+</p>
+<hr/>
+
+<p><br/>
+<pre class="example">AuthCode
+b6 5f c3 e0 4a 60 2f e2 02 34 ab b8
+data:
+06 c0 fb 2d b5 ff 05 00 00 00 20 00 85 60 50 c6
+26 3e f1 3e 83 12 41 ba 22 4d b0 b5 e9 9e 3c af
+52 f3 1f d1 05 26 54 95 f1 30 f4 ce ff ff 02 07
+key(K1):
+e8 9c b1 4c 9f 39 c6 6e 75 e8 e5 54 d4 11 60 b9 1c ba a1 e7
+=&gt; HMAC-SHA1:
+b6 5f c3 e0 4a 60 2f e2 02 34 ab b8 93 72 32 d4 d2 bd ae dc
+=&gt; first 12 bytes:
+b6 5f c3 e0 4a 60 2f e2 02 34 ab b8
+</pre>
+
+
+</p>
+<hr/>
+</div>
+</div>
+</div>
+
+<div id="postamble">
+<p class="date">Date: 2013/08/29</p>
+<p class="author">Author: zhang.bin-jie</p>
+<p class="creator">Org version 7.8.11 with Emacs version 24</p>
+<a href="http://validator.w3.org/check?uri=referer">Validate XHTML 1.0</a>
+
+</div>
+</body>
+</html>
